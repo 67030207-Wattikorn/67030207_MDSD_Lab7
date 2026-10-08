@@ -5,9 +5,15 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/listing_draft.dart';
 import '../services/gemini_vision_service.dart';
+import '../repositories/listing_draft_repository.dart';
 
 class SellItemPage extends StatefulWidget {
-  const SellItemPage({super.key});
+  final ListingDraftRepository draftRepository;
+
+  const SellItemPage({
+    super.key,
+    required this.draftRepository,
+  });
 
   @override
   State<SellItemPage> createState() => _SellItemPageState();
@@ -17,14 +23,10 @@ class _SellItemPageState extends State<SellItemPage> {
   // ============================================================
   // PROMPT
   // ============================================================
-  // ใช้ Prompt นี้สำหรับการใช้งานจริง
-  //
-  // สำหรับข้อ 6.1 ให้เปลี่ยนเฉพาะข้อความด้านใน ''' ''' ชั่วคราว
-  // แล้วทดสอบ จากนั้นต้องเปลี่ยนกลับมาเป็น Prompt นี้
-  // ============================================================
 
-static const String _prompt = '''
-...
+  // ใส่ Prompt เดิมของคุณตรงนี้
+  static const String _prompt = '''
+ใส่ Prompt เดิมของคุณที่ใช้กับ Gemini ตรงนี้
 ''';
 
   // ============================================================
@@ -32,13 +34,12 @@ static const String _prompt = '''
   // ============================================================
 
   Uint8List? _imageBytes;
+  String? _imagePath;
 
   bool _isLoading = false;
 
   ListingDraft? _draft;
-
-  // ร่างประกาศฉบับสุดท้าย
-  ListingDraft? _finalDraft;
+  
 
   String? _errorMessage;
 
@@ -87,9 +88,10 @@ static const String _prompt = '''
 
     setState(() {
       _imageBytes = bytes;
+      _imagePath = result.path;
 
       _draft = null;
-      _finalDraft = null;
+      
       _errorMessage = null;
 
       _titleController.clear();
@@ -106,9 +108,7 @@ static const String _prompt = '''
     if (_imageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'กรุณาเลือกรูปสินค้าก่อน',
-          ),
+          content: Text('กรุณาเลือกรูปสินค้าก่อน'),
         ),
       );
 
@@ -136,18 +136,10 @@ static const String _prompt = '''
         _draft = result;
         _isLoading = false;
 
-        // ======================================================
         // Human-in-the-loop
-        // นำผลจาก AI ใส่ TextField
-        // ผู้ใช้สามารถตรวจสอบและแก้ไขได้
-        // ======================================================
-
         _titleController.text = result.title;
-
         _categoryController.text = result.category;
-
-        _descriptionController.text =
-            result.description;
+        _descriptionController.text = result.description;
       });
     } catch (e) {
       if (!mounted) {
@@ -156,7 +148,6 @@ static const String _prompt = '''
 
       setState(() {
         _isLoading = false;
-
         _errorMessage = e.toString();
       });
     }
@@ -166,73 +157,82 @@ static const String _prompt = '''
   // ยืนยันร่างประกาศ
   // ============================================================
 
-  void confirmDraft() {
+  Future<void> confirmDraft() async {
     // ตรวจสอบข้อมูล
     if (_titleController.text.trim().isEmpty ||
         _categoryController.text.trim().isEmpty ||
         _descriptionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'กรุณากรอกข้อมูลให้ครบทุกช่อง',
-          ),
+          content: Text('กรุณากรอกข้อมูลให้ครบทุกช่อง'),
         ),
       );
 
       return;
     }
 
-    // ==========================================================
-    // สร้าง ListingDraft จากข้อมูลที่ผู้ใช้ตรวจสอบแล้ว
-    // ==========================================================
+    // ตรวจสอบรูป
+    if (_imagePath == null || _imagePath!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('กรุณาเลือกรูปสินค้า'),
+        ),
+      );
 
+      return;
+    }
+
+    // สร้าง ListingDraft จากข้อมูลที่ผู้ใช้ตรวจสอบแล้ว
     final finalDraft = ListingDraft(
       title: _titleController.text.trim(),
       category: _categoryController.text.trim(),
       description: _descriptionController.text.trim(),
     );
 
-    // ==========================================================
-    // เก็บไว้ใน State
-    // ยังไม่บันทึก Database
-    // ==========================================================
+    try {
+      // บันทึกลง Drift Database
+      await widget.draftRepository.saveDraft(
+        finalDraft,
+        _imagePath!,
+      );
 
-    setState(() {
-      _finalDraft = finalDraft;
-    });
+      if (!mounted) {
+        return;
+      }
 
-    // ==========================================================
-    // แสดง SnackBar
-    // ==========================================================
+      setState(() {
+        
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'บันทึกร่างประกาศเรียบร้อยแล้ว',
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('บันทึกร่างประกาศลงฐานข้อมูลแล้ว'),
         ),
-      ),
-    );
+      );
 
-    // ==========================================================
-    // ล้างฟอร์ม
-    // ==========================================================
+      // ล้างฟอร์ม
+      setState(() {
+        _imageBytes = null;
+        _imagePath = null;
+        _draft = null;
+       
+        _errorMessage = null;
 
-    setState(() {
-      _imageBytes = null;
+        _titleController.clear();
+        _categoryController.clear();
+        _descriptionController.clear();
+      });
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
 
-      _draft = null;
-
-      _errorMessage = null;
-
-      _titleController.clear();
-
-      _categoryController.clear();
-
-      _descriptionController.clear();
-    });
-
-    // ไม่ใช้ Navigator.pop()
-    // เพราะหน้านี้เป็น Tab
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('บันทึกไม่สำเร็จ: $e'),
+        ),
+      );
+    }
   }
 
   // ============================================================
@@ -243,9 +243,7 @@ static const String _prompt = '''
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          'ลงประกาศขาย',
-        ),
+        title: const Text('ลงประกาศขาย'),
       ),
 
       body: SingleChildScrollView(
@@ -265,9 +263,7 @@ static const String _prompt = '''
                 border: Border.all(
                   color: Colors.grey,
                 ),
-
-                borderRadius:
-                    BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(12),
               ),
 
               child: _imageBytes != null
@@ -283,7 +279,6 @@ static const String _prompt = '''
                   : const Center(
                       child: Text(
                         'ยังไม่ได้เลือกรูปสินค้า',
-
                         style: TextStyle(
                           color: Colors.grey,
                         ),
@@ -364,11 +359,9 @@ static const String _prompt = '''
               Container(
                 width: double.infinity,
 
-                padding:
-                    const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(12),
 
-                margin:
-                    const EdgeInsets.only(
+                margin: const EdgeInsets.only(
                   top: 16,
                 ),
 
@@ -376,7 +369,6 @@ static const String _prompt = '''
                   border: Border.all(
                     color: Colors.red,
                   ),
-
                   borderRadius:
                       BorderRadius.circular(8),
                 ),
@@ -398,17 +390,14 @@ static const String _prompt = '''
               const SizedBox(height: 20),
 
               const Align(
-                alignment:
-                    Alignment.centerLeft,
+                alignment: Alignment.centerLeft,
 
                 child: Text(
                   'ตรวจทานและแก้ไขข้อมูล',
 
                   style: TextStyle(
                     fontSize: 20,
-
-                    fontWeight:
-                        FontWeight.bold,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
@@ -416,8 +405,7 @@ static const String _prompt = '''
               const SizedBox(height: 8),
 
               const Align(
-                alignment:
-                    Alignment.centerLeft,
+                alignment: Alignment.centerLeft,
 
                 child: Text(
                   'ตรวจสอบข้อมูลที่ AI แนะนำก่อนยืนยัน',
@@ -430,50 +418,33 @@ static const String _prompt = '''
 
               const SizedBox(height: 16),
 
-              // =================================================
               // ชื่อประกาศ
-              // =================================================
-
               TextField(
-                controller:
-                    _titleController,
+                controller: _titleController,
 
                 decoration:
                     const InputDecoration(
-                  labelText:
-                      'ชื่อประกาศ',
-
-                  border:
-                      OutlineInputBorder(),
+                  labelText: 'ชื่อประกาศ',
+                  border: OutlineInputBorder(),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              // =================================================
               // หมวดหมู่
-              // =================================================
-
               TextField(
-                controller:
-                    _categoryController,
+                controller: _categoryController,
 
                 decoration:
                     const InputDecoration(
-                  labelText:
-                      'หมวดหมู่',
-
-                  border:
-                      OutlineInputBorder(),
+                  labelText: 'หมวดหมู่',
+                  border: OutlineInputBorder(),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              // =================================================
               // คำบรรยาย
-              // =================================================
-
               TextField(
                 controller:
                     _descriptionController,
@@ -482,14 +453,9 @@ static const String _prompt = '''
 
                 decoration:
                     const InputDecoration(
-                  labelText:
-                      'คำบรรยาย',
-
-                  border:
-                      OutlineInputBorder(),
-
-                  alignLabelWithHint:
-                      true,
+                  labelText: 'คำบรรยาย',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
                 ),
               ),
 
@@ -503,8 +469,7 @@ static const String _prompt = '''
                 width: double.infinity,
 
                 child: ElevatedButton.icon(
-                  onPressed:
-                      confirmDraft,
+                  onPressed: confirmDraft,
 
                   icon: const Icon(
                     Icons.check,
